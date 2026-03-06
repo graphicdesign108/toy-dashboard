@@ -2,12 +2,29 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+def fix_drive(url):
+
+    if url is None:
+        return ""
+
+    url = str(url)
+
+    if "drive.google.com/thumbnail" in url:
+        file_id = url.split("id=")[1].split("&")[0]
+        return f"https://drive.google.com/uc?id={file_id}"
+
+    if "/file/d/" in url:
+        file_id = url.split("/d/")[1].split("/")[0]
+        return f"https://drive.google.com/uc?id={file_id}"
+
+    return url
+
 st.set_page_config(
-    page_title="Toy Story Product Analytics Dashboard",
+    page_title="Product Analytics Dashboard",
     layout="wide"
 )
 
-st.title("Toy Story Product Analytics Dashboard")
+st.title("Product Analytics Dashboard")
 
 # -------------------------
 # LOAD DATA
@@ -22,6 +39,32 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
 else:
     df = pd.read_excel("ToyStory-2025-ChatGPT.xlsx")
+
+if "product_image_url" not in df.columns:
+    df["product_image_url"] = ""
+
+# -------------------------
+# FIX GOOGLE DRIVE IMAGE
+# -------------------------
+
+def fix_drive(url):
+
+    if pd.isna(url):
+        return ""
+
+    url = str(url)
+
+    if "drive.google.com" in url:
+
+        try:
+            file_id = url.split("/d/")[1].split("/")[0]
+            return f"https://drive.google.com/uc?id={file_id}"
+        except:
+            return ""
+
+    return url
+
+df["product_image_url"] = df["product_image_url"].apply(fix_drive)
 
 # -------------------------
 # METRIC SWITCH
@@ -107,72 +150,138 @@ top_channel = df.groupby("sales_Channel")["Quantity_Sold"].sum().idxmax()
 slow_sku = df.groupby("Product_Code")["Quantity_Sold"].sum().idxmin()
 
 st.markdown(f"""
-**Key Insights**
+⭐ **Top SKU:** {top_sku} ({top_units:,} units)
 
-⭐ Top SKU: **{top_sku}** with **{top_units:,} units sold**
+🛒 **Best Channel:** {top_channel}
 
-🛒 Strongest Channel: **{top_channel}**
-
-🔁 Reprint Priority: **{top_sku}**
-
-💤 Slow Moving SKU: **{slow_sku}**
+💤 **Slowest SKU:** {slow_sku}
 """)
 
 # -------------------------
-# AI BUSINESS INSIGHTS
+# PRODUCT GALLERY
 # -------------------------
 
-st.subheader("AI Business Insights")
+st.subheader("Product Gallery")
 
-channel_share = (
-    df.groupby("sales_Channel")["Quantity_Sold"]
-    .sum()
-    .sort_values(ascending=False)
+gallery_mode = st.radio(
+    "Gallery Mode",
+    ["Highlight Only", "Show All"],
+    horizontal=True
 )
 
-top_channel_pct = channel_share.iloc[0] / channel_share.sum()
-
-top3_share = (
-    df.groupby("Product_Code")["Quantity_Sold"]
+gallery = (
+    df.groupby(["Product_Code", "product_image_url"])["Quantity_Sold"]
     .sum()
-    .sort_values(ascending=False)
-    .head(3)
-    .sum()
-    / df["Quantity_Sold"].sum()
+    .reset_index()
+    .sort_values("Quantity_Sold", ascending=False)
 )
 
-insights = []
+highlight = gallery.head(4)
+rest = gallery.tail(len(gallery)-4)
 
-if top_channel_pct > 0.5:
-    insights.append(
-        f"⚠ Demand concentrated in **{channel_share.index[0]}** ({top_channel_pct:.0%})."
-    )
+st.markdown("### ⭐ Top Products")
 
-if top3_share > 0.6:
-    insights.append(
-        f"📦 Top 3 SKUs generate **{top3_share:.0%}** of demand."
-    )
+cols = st.columns(4)
 
-slow_share = (
-    df.groupby("Product_Code")["Quantity_Sold"]
-    .sum()
-    .sort_values()
-    .head(5)
-    .sum()
-    / df["Quantity_Sold"].sum()
+for i, (_, row) in enumerate(highlight.iterrows()):
+
+    with cols[i]:
+
+        if row["product_image_url"]:
+            st.image(row["product_image_url"], use_container_width=True)
+        else:
+            st.markdown("### No Pic")
+
+        st.markdown(f"**{row['Product_Code']}**")
+        st.markdown(f"Units Sold: {row['Quantity_Sold']:,}")
+
+if gallery_mode == "Show All":
+
+    st.markdown("---")
+    st.markdown("### All Products")
+
+    per_row = 4
+    idx = 0
+
+    for r in range(len(rest)//4 + 1):
+
+        cols = st.columns(per_row)
+
+        for c in range(per_row):
+
+            if idx >= len(rest):
+                break
+
+            row = rest.iloc[idx]
+
+            with cols[c]:
+
+                if row["product_image_url"]:
+                    st.image(row["product_image_url"], use_container_width=True)
+                else:
+                    st.markdown("### No Pic")
+
+                st.markdown(f"**{row['Product_Code']}**")
+                st.markdown(f"Units Sold: {row['Quantity_Sold']:,}")
+
+            idx += 1
+
+# -------------------------
+# PRODUCT EXPLORER
+# -------------------------
+
+st.divider()
+st.subheader("Product Explorer")
+
+selected_product = st.selectbox(
+    "Select Product",
+    sorted(df["Product_Code"].unique())
 )
 
-if slow_share < 0.1:
-    insights.append(
-        "💤 Bottom SKUs contribute very little demand."
-    )
+product_df = df[df["Product_Code"] == selected_product]
 
-for i in insights:
-    st.markdown(f"- {i}")
+col1, col2 = st.columns([1,2])
+
+image_url = product_df["product_image_url"].iloc[0]
+
+with col1:
+
+    if image_url:
+        st.image(image_url, use_container_width=True)
+    else:
+        st.markdown("### No Pic")
+
+with col2:
+
+    units = product_df["Quantity_Sold"].sum()
+    revenue = product_df["Total_Sales_Baht"].sum()
+    fabric = product_df["Fabric"].iloc[0]
+
+    st.metric("Units Sold", f"{units:,}")
+    st.metric("Revenue", f"{revenue:,.0f} ฿")
+    st.metric("Fabric", fabric)
+
+channel_df = (
+    product_df.groupby("sales_Channel")["Quantity_Sold"]
+    .sum()
+    .reset_index()
+)
+
+fig = px.bar(
+    channel_df,
+    x="sales_Channel",
+    y="Quantity_Sold",
+    color="sales_Channel",
+    title=f"Channel Distribution - {selected_product}"
+)
+
+st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------
 # CHANNEL PERFORMANCE
 # -------------------------
+
+st.subheader("Channel Performance")
 
 channel_sales = (
     df.groupby("sales_Channel")[value_col]
@@ -204,28 +313,6 @@ fig_share = px.pie(
 st.plotly_chart(fig_share, use_container_width=True)
 
 # -------------------------
-# TOP SKU
-# -------------------------
-
-top_products = (
-    df.groupby("Product_Code")[value_col]
-    .sum()
-    .reset_index()
-    .sort_values(value_col, ascending=False)
-    .head(15)
-)
-
-fig_top = px.bar(
-    top_products,
-    x="Product_Code",
-    y=value_col,
-    color=value_col,
-    title="Top SKU"
-)
-
-st.plotly_chart(fig_top, use_container_width=True)
-
-# -------------------------
 # HEATMAP
 # -------------------------
 
@@ -246,12 +333,10 @@ fig_heat = px.imshow(
     title="SKU vs Channel Heatmap"
 )
 
-fig_heat.update_layout(height=550)
-
 st.plotly_chart(fig_heat, use_container_width=True)
 
 # -------------------------
-# SKU CHANNEL DEPENDENCY
+# SKU DEPENDENCY
 # -------------------------
 
 dep = (
@@ -271,7 +356,7 @@ fig_dep = px.bar(
 st.plotly_chart(fig_dep, use_container_width=True)
 
 # -------------------------
-# SKU CONCENTRATION
+# PARETO
 # -------------------------
 
 pareto = (
@@ -301,19 +386,43 @@ st.plotly_chart(fig_pareto, use_container_width=True)
 st.subheader("Reprint Candidates")
 
 reprint = (
-    df.groupby("Product_Code")["Quantity_Sold"]
+    df.groupby(["Product_Code", "product_image_url"])["Quantity_Sold"]
     .sum()
     .reset_index()
     .sort_values("Quantity_Sold", ascending=False)
     .head(10)
 )
 
-st.dataframe(reprint, hide_index=True)
+# rename columns for cleaner UI
+reprint = reprint.rename(columns={
+    "Product_Code": "SKU",
+    "product_image_url": "Image",
+    "Quantity_Sold": "Units Sold"
+})
 
+# add recommendation column
+reprint["Priority"] = "High"
+
+st.dataframe(
+    reprint,
+    column_config={
+        "Image": st.column_config.ImageColumn(
+            "Product Image"
+        ),
+        "Units Sold": st.column_config.NumberColumn(
+            "Units Sold",
+            format="%d"
+        )
+    },
+    hide_index=True,
+    use_container_width=True
+)
+
+# download button
 st.download_button(
     "Download Reprint List",
     reprint.to_csv(index=False),
-    "reprint_candidates.csv"
+    file_name="reprint_candidates.csv"
 )
 
 # -------------------------
