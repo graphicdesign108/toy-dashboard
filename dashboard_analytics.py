@@ -2,9 +2,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(layout="wide")
+st.set_page_config(
+    page_title="Toy Story Product Analytics Dashboard",
+    layout="wide"
+)
 
-st.title("Toy Story Retail Product Analytics")
+st.title("Toy Story Product Analytics Dashboard")
 
 file = st.file_uploader("Upload Sales Data", type=["xlsx","csv"])
 
@@ -15,9 +18,9 @@ if file:
     else:
         df = pd.read_csv(file)
 
-# ------------------------
-# METRIC SWITCH
-# ------------------------
+    # ------------------------
+    # METRIC SWITCH
+    # ------------------------
 
     metric = st.radio(
         "Metric",
@@ -32,27 +35,24 @@ if file:
         value_col = "Total_Sales_Baht"
         label = "Revenue"
 
-# ------------------------
-# FILTERS
-# ------------------------
+    # ------------------------
+    # FILTERS
+    # ------------------------
 
     st.sidebar.header("Filters")
 
-    # Channel filter
     channel = st.sidebar.multiselect(
         "Channel",
         sorted(df["sales_Channel"].unique()),
         default=sorted(df["sales_Channel"].unique())
     )
 
-    # Fabric filter
     fabric = st.sidebar.multiselect(
         "Fabric",
         sorted(df["Fabric"].unique()),
         default=sorted(df["Fabric"].unique())
     )
 
-    # SKU search
     search = st.sidebar.text_input("Search SKU")
 
     sku_list = sorted(df["Product_Code"].unique())
@@ -60,39 +60,114 @@ if file:
     if search:
         sku_list = [s for s in sku_list if search.lower() in s.lower()]
 
-    # SKU selector
     sku = st.sidebar.multiselect(
         "Select SKU",
         sku_list,
         default=sku_list
     )
 
-    # Apply filter
     df = df[
         (df["sales_Channel"].isin(channel)) &
         (df["Fabric"].isin(fabric)) &
         (df["Product_Code"].isin(sku))
     ]
 
-# ------------------------
-# KPI
-# ------------------------
+    # ------------------------
+    # KPI
+    # ------------------------
 
     total_value = df[value_col].sum()
-    units = df["Quantity_Sold"].sum()
-    sku = df["Product_Code"].nunique()
+    total_units = df["Quantity_Sold"].sum()
+    sku_count = df["Product_Code"].nunique()
 
     k1,k2,k3 = st.columns(3)
 
     k1.metric(label, f"{total_value:,.0f}")
-    k2.metric("Total Units", f"{units:,.0f}")
-    k3.metric("Active SKU", sku)
+    k2.metric("Total Units", f"{total_units:,.0f}")
+    k3.metric("Active SKU", sku_count)
 
     st.divider()
 
-# ------------------------
-# CHANNEL PERFORMANCE
-# ------------------------
+    # ------------------------
+    # EXECUTIVE SUMMARY
+    # ------------------------
+
+    st.subheader("Executive Summary")
+
+    top_sku = df.groupby("Product_Code")["Quantity_Sold"].sum().idxmax()
+    top_units = df.groupby("Product_Code")["Quantity_Sold"].sum().max()
+
+    top_channel = df.groupby("sales_Channel")["Quantity_Sold"].sum().idxmax()
+
+    slow_sku = df.groupby("Product_Code")["Quantity_Sold"].sum().idxmin()
+
+    st.markdown(f"""
+**Key Insights**
+
+• ⭐ Top SKU: **{top_sku}** with **{top_units:,} units sold**
+
+• 🛒 Strongest Channel: **{top_channel}**
+
+• 🔁 Reprint Priority: **{top_sku}**
+
+• 💤 Slow Moving SKU: **{slow_sku}**
+""")
+
+    # ------------------------
+    # AI BUSINESS INSIGHTS
+    # ------------------------
+
+    st.subheader("AI Business Insights")
+
+    channel_share = (
+        df.groupby("sales_Channel")["Quantity_Sold"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    top_channel_pct = channel_share.iloc[0] / channel_share.sum()
+
+    top3_share = (
+        df.groupby("Product_Code")["Quantity_Sold"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(3)
+        .sum()
+        / df["Quantity_Sold"].sum()
+    )
+
+    ai_insights = []
+
+    if top_channel_pct > 0.5:
+        ai_insights.append(
+            f"⚠ Demand is highly concentrated in **{channel_share.index[0]}** ({top_channel_pct:.0%}). Consider diversifying channels."
+        )
+
+    if top3_share > 0.6:
+        ai_insights.append(
+            f"📦 Top 3 SKUs generate **{top3_share:.0%}** of total demand. Inventory planning should prioritize these."
+        )
+
+    slow_share = (
+        df.groupby("Product_Code")["Quantity_Sold"]
+        .sum()
+        .sort_values()
+        .head(5)
+        .sum()
+        / df["Quantity_Sold"].sum()
+    )
+
+    if slow_share < 0.1:
+        ai_insights.append(
+            "💤 Bottom SKUs contribute very little demand. Consider discontinuing or bundling slow movers."
+        )
+
+    for insight in ai_insights:
+        st.markdown(f"- {insight}")
+
+    # ------------------------
+    # CHANNEL PERFORMANCE
+    # ------------------------
 
     channel_sales = (
         df.groupby("sales_Channel")[value_col]
@@ -111,9 +186,9 @@ if file:
 
     st.plotly_chart(fig_channel,use_container_width=True)
 
-# ------------------------
-# CHANNEL SHARE
-# ------------------------
+    # ------------------------
+    # CHANNEL SHARE
+    # ------------------------
 
     fig_share = px.pie(
         channel_sales,
@@ -125,9 +200,9 @@ if file:
 
     st.plotly_chart(fig_share,use_container_width=True)
 
-# ------------------------
-# TOP SKU
-# ------------------------
+    # ------------------------
+    # TOP SKU
+    # ------------------------
 
     top_products = (
         df.groupby("Product_Code")[value_col]
@@ -148,9 +223,9 @@ if file:
 
     st.plotly_chart(fig_top,use_container_width=True)
 
-# ------------------------
-# HEATMAP
-# ------------------------
+    # ------------------------
+    # HEATMAP
+    # ------------------------
 
     heat = pd.pivot_table(
         df,
@@ -173,9 +248,9 @@ if file:
 
     st.plotly_chart(fig_heat,use_container_width=True)
 
-# ------------------------
-# SKU CHANNEL DEPENDENCY
-# ------------------------
+    # ------------------------
+    # SKU CHANNEL DEPENDENCY
+    # ------------------------
 
     dep = (
         df.groupby(["Product_Code","sales_Channel"])["Quantity_Sold"]
@@ -193,9 +268,9 @@ if file:
 
     st.plotly_chart(fig_dep,use_container_width=True)
 
-# ------------------------
-# SKU CONCENTRATION
-# ------------------------
+    # ------------------------
+    # SKU CONCENTRATION
+    # ------------------------
 
     pareto = (
         df.groupby("Product_Code")[value_col]
@@ -217,9 +292,9 @@ if file:
 
     st.plotly_chart(fig_pareto,use_container_width=True)
 
-# ------------------------
-# REPRINT
-# ------------------------
+    # ------------------------
+    # REPRINT
+    # ------------------------
 
     st.subheader("Reprint Candidates")
 
@@ -231,11 +306,17 @@ if file:
         .head(10)
     )
 
-    st.dataframe(reprint)
+    st.dataframe(reprint,hide_index=True)
 
-# ------------------------
-# SLOW MOVERS
-# ------------------------
+    st.download_button(
+        "Download Reprint List",
+        reprint.to_csv(index=False),
+        "reprint_candidates.csv"
+    )
+
+    # ------------------------
+    # SLOW MOVERS
+    # ------------------------
 
     st.subheader("Slow Moving SKU")
 
@@ -247,4 +328,4 @@ if file:
         .head(10)
     )
 
-    st.dataframe(slow)
+    st.dataframe(slow,hide_index=True)
